@@ -7,7 +7,8 @@ import { parseFiles } from '../lib/fileParser'
 export default function ResumePage() {
   const [step, setStep] = useState<1 | 2>(1)
   const [experience, setExperience] = useState('')
-  const [originalResume, setOriginalResume] = useState('')
+  const [expDocs, setExpDocs] = useState<{ name: string; text: string }[]>([])
+  const [resumeDocs, setResumeDocs] = useState<{ name: string; text: string }[]>([])
   const [baseResume, setBaseResume] = useState('')
   const [jdContent, setJdContent] = useState('')
   const [finalResume, setFinalResume] = useState('')
@@ -15,15 +16,12 @@ export default function ResumePage() {
   const [copied, setCopied] = useState(false)
   const [savedId, setSavedId] = useState<string | null>(null)
   const [uploading, setUploading] = useState<string | null>(null)
-  const [uploadedExp, setUploadedExp] = useState<string[]>([])
-  const [uploadedResume, setUploadedResume] = useState<string[]>([])
   const expFileRef = useRef<HTMLInputElement>(null)
   const resumeFileRef = useRef<HTMLInputElement>(null)
 
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
-    setter: (v: string) => void,
-    namesSetter: (fn: (prev: string[]) => string[]) => void,
+    docsSetter: (fn: (prev: { name: string; text: string }[]) => { name: string; text: string }[]) => void,
     inputRef: React.RefObject<HTMLInputElement>,
     uploadingKey: string
   ) => {
@@ -31,9 +29,12 @@ export default function ResumePage() {
     if (!files || files.length === 0) return
     setUploading(uploadingKey)
     try {
-      const text = await parseFiles(files)
-      setter(prev => prev ? prev + '\n\n' + text : text)
-      namesSetter(prev => [...prev, ...Array.from(files).map(f => f.name)])
+      const newDocs: { name: string; text: string }[] = []
+      for (const file of Array.from(files)) {
+        const text = await parseFiles([file])
+        newDocs.push({ name: file.name, text })
+      }
+      docsSetter(prev => [...prev, ...newDocs])
     } catch (err: any) {
       alert('文件解析失败：' + err.message)
     } finally {
@@ -43,7 +44,11 @@ export default function ResumePage() {
   }
 
   const generateBaseResume = async () => {
-    if (!experience.trim()) return
+    const expFull = [
+      experience.trim(),
+      ...expDocs.map(d => `【来自文档：${d.name}】\n${d.text}`)
+    ].filter(Boolean).join('\n\n')
+    if (!expFull) return
     setBaseResume('')
     setFinalResume('')
     setStreaming(true)
@@ -61,7 +66,7 @@ export default function ResumePage() {
       },
       {
         role: 'user',
-        content: `请根据以下内容生成简历：\n\n【工作经历描述】\n${experience}${originalResume ? `\n\n【原始简历参考】\n${originalResume}` : ''}`,
+        content: `请根据以下内容生成简历：\n\n【工作经历描述】\n${expFull}${resumeDocs.length > 0 ? `\n\n【原始简历参考】\n${resumeDocs.map(d => d.text).join('\n\n')}` : ''}`,
       },
     ]
 
@@ -150,52 +155,54 @@ export default function ResumePage() {
       {!baseResume ? (
         <div className="space-y-4">
           <div className="card">
-            <label className="block text-sm font-medium text-gray-700 mb-2">工作/实习经历描述 *</label>
-            <textarea className="textarea" rows={7} value={experience} onChange={e => setExperience(e.target.value)} placeholder="详细描述你的工作内容、负责的项目、取得的成果..." />
-            <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-blue-600 mt-2">
-              <span>{uploading === 'exp' ? '⏳ 解析中...' : '📎 上传经历文档（PDF/Word/TXT，可多选）'}</span>
-              <input
-                ref={expFileRef}
-                type="file"
-                accept=".pdf,.docx,.txt,.md"
-                multiple
-                className="hidden"
-                disabled={!!uploading}
-                onChange={e => handleFileUpload(e, setExperience, setUploadedExp, expFileRef, 'exp')}
-              />
-            </label>
-            {uploadedExp.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {uploadedExp.map((name, i) => (
-                  <span key={i} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">📄 {name}</span>
+            <label className="block text-sm font-medium text-gray-700 mb-2">工作/实习经历描述</label>
+            <textarea className="textarea" rows={5} value={experience} onChange={e => setExperience(e.target.value)} placeholder="直接输入经历描述，或上传文档，或两者结合..." />
+            <div className="flex items-center justify-between mt-2">
+              <label className={`flex items-center gap-1.5 text-sm cursor-pointer px-3 py-1.5 rounded-lg border transition-all ${uploading === 'exp' ? 'text-gray-400 border-gray-200' : 'text-blue-600 border-blue-200 hover:bg-blue-50'}`}>
+                <span>{uploading === 'exp' ? '⏳ 解析中...' : '+ 上传经历文档'}</span>
+                <input ref={expFileRef} type="file" accept=".pdf,.docx,.txt,.md" multiple className="hidden" disabled={!!uploading}
+                  onChange={e => handleFileUpload(e, setExpDocs, expFileRef, 'exp')} />
+              </label>
+            </div>
+            {expDocs.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {expDocs.map((doc, i) => (
+                  <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span>{doc.name.endsWith('.pdf') ? '📕' : '📘'}</span>
+                      <span className="text-sm text-gray-700">{doc.name}</span>
+                      <span className="text-xs text-gray-400">{doc.text.length} 字符</span>
+                    </div>
+                    <button onClick={() => setExpDocs(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 text-lg">×</button>
+                  </div>
                 ))}
               </div>
             )}
           </div>
           <div className="card">
             <label className="block text-sm font-medium text-gray-700 mb-2">原始简历（可选）</label>
-            <textarea className="textarea" rows={4} value={originalResume} onChange={e => setOriginalResume(e.target.value)} placeholder="粘贴你现有的简历内容，AI 会参考并优化..." />
-            <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-blue-600 mt-2">
-              <span>{uploading === 'resume' ? '⏳ 解析中...' : '📎 上传简历文件（PDF/Word/TXT，可多选）'}</span>
-              <input
-                ref={resumeFileRef}
-                type="file"
-                accept=".pdf,.docx,.txt,.md"
-                multiple
-                className="hidden"
-                disabled={!!uploading}
-                onChange={e => handleFileUpload(e, setOriginalResume, setUploadedResume, resumeFileRef, 'resume')}
-              />
+            <p className="text-xs text-gray-400 mb-2">上传现有简历，AI 会参考格式和内容进行优化</p>
+            <label className={`flex items-center gap-1.5 text-sm cursor-pointer px-3 py-1.5 rounded-lg border transition-all w-fit ${uploading === 'resume' ? 'text-gray-400 border-gray-200' : 'text-blue-600 border-blue-200 hover:bg-blue-50'}`}>
+              <span>{uploading === 'resume' ? '⏳ 解析中...' : '+ 上传简历文件'}</span>
+              <input ref={resumeFileRef} type="file" accept=".pdf,.docx,.txt,.md" multiple className="hidden" disabled={!!uploading}
+                onChange={e => handleFileUpload(e, setResumeDocs, resumeFileRef, 'resume')} />
             </label>
-            {uploadedResume.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {uploadedResume.map((name, i) => (
-                  <span key={i} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">📄 {name}</span>
+            {resumeDocs.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {resumeDocs.map((doc, i) => (
+                  <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span>{doc.name.endsWith('.pdf') ? '📕' : '📘'}</span>
+                      <span className="text-sm text-gray-700">{doc.name}</span>
+                      <span className="text-xs text-gray-400">{doc.text.length} 字符</span>
+                    </div>
+                    <button onClick={() => setResumeDocs(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 text-lg">×</button>
+                  </div>
                 ))}
               </div>
             )}
           </div>
-          <button onClick={generateBaseResume} disabled={streaming || !experience.trim()} className="btn-primary w-full py-3">
+          <button onClick={generateBaseResume} disabled={streaming || (!experience.trim() && expDocs.length === 0)} className="btn-primary w-full py-3">
             {streaming ? '✨ 生成中...' : '生成基础简历'}
           </button>
         </div>

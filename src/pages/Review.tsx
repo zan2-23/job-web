@@ -8,6 +8,7 @@ import { Review } from '../types'
 
 export default function ReviewPage() {
   const [content, setContent] = useState('')
+  const [docTexts, setDocTexts] = useState<{ name: string; text: string }[]>([])
   const [result, setResult] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [showMindMap, setShowMindMap] = useState(false)
@@ -15,7 +16,6 @@ export default function ReviewPage() {
   const [selectedHistory, setSelectedHistory] = useState<Review | null>(null)
   const [tab, setTab] = useState<'new' | 'history'>('new')
   const [uploading, setUploading] = useState(false)
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -34,19 +34,33 @@ export default function ReviewPage() {
     if (!files || files.length === 0) return
     setUploading(true)
     try {
-      const text = await parseFiles(files)
-      setContent(prev => prev ? prev + '\n\n' + text : text)
-      setUploadedFiles(prev => [...prev, ...Array.from(files).map(f => f.name)])
-    } catch (err: any) {
-      alert('文件解析失败：' + err.message)
+      const newDocs: { name: string; text: string }[] = []
+      for (const file of Array.from(files)) {
+        try {
+          const text = await parseFiles([file])
+          newDocs.push({ name: file.name, text })
+        } catch (err: any) {
+          newDocs.push({ name: file.name, text: `（解析失败：${err.message}）` })
+        }
+      }
+      setDocTexts(prev => [...prev, ...newDocs])
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
+  const removeDoc = (index: number) => {
+    setDocTexts(prev => prev.filter((_, i) => i !== index))
+  }
+
   const handleReview = async () => {
-    if (!content.trim()) return
+    const combinedInput = [
+      content.trim(),
+      ...docTexts.map(d => `【来自文档：${d.name}】\n${d.text}`)
+    ].filter(Boolean).join('\n\n')
+
+    if (!combinedInput) return
     setResult('')
     setStreaming(true)
     setShowMindMap(false)
@@ -63,7 +77,7 @@ export default function ReviewPage() {
 5. 待提升的能力方向
 语言专业、有洞察力，帮助用户看清自己的价值。`,
       },
-      { role: 'user', content: `请帮我复盘以下工作经历：\n\n${content}` },
+      { role: 'user', content: `请帮我复盘以下工作经历：\n\n${combinedInput}` },
     ]
 
     let fullResult = ''
@@ -78,7 +92,7 @@ export default function ReviewPage() {
           setStreaming(false)
           const { data: { user } } = await supabase.auth.getUser()
           if (user) {
-            await supabase.from('reviews').insert({ user_id: user.id, content, result: fullResult })
+            await supabase.from('reviews').insert({ user_id: user.id, content: combinedInput, result: fullResult })
             loadHistory()
           }
         }
@@ -88,6 +102,8 @@ export default function ReviewPage() {
       setResult('生成失败，请检查网络或稍后重试。')
     }
   }
+
+  const hasInput = content.trim() || docTexts.length > 0
 
   return (
     <div>
@@ -102,17 +118,25 @@ export default function ReviewPage() {
       {tab === 'new' && (
         <div className="space-y-4">
           <div className="card">
-            <label className="block text-sm font-medium text-gray-700 mb-2">工作经历描述</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">工作经历描述（可选）</label>
             <textarea
               className="textarea"
-              rows={8}
+              rows={6}
               value={content}
               onChange={e => setContent(e.target.value)}
-              placeholder="描述你的工作内容、负责的项目、取得的成果、遇到的挑战和解决方案...&#10;&#10;越详细越好，AI 会帮你挖掘价值点。"
+              placeholder="直接描述你的工作内容、项目、成果...&#10;也可以只上传文档，不用填写文字。"
             />
-            <div className="flex items-center justify-between mt-3">
-              <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-blue-600">
-                <span>{uploading ? '⏳ 解析中...' : '📎 上传文档（PDF/Word/TXT，可多选）'}</span>
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs text-gray-400">{content.length} 字</span>
+            </div>
+          </div>
+
+          {/* 文件上传区 */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm font-medium text-gray-700">上传文档（可选）</label>
+              <label className={`flex items-center gap-1.5 text-sm cursor-pointer px-3 py-1.5 rounded-lg border transition-all ${uploading ? 'text-gray-400 border-gray-200' : 'text-blue-600 border-blue-200 hover:bg-blue-50'}`}>
+                <span>{uploading ? '⏳ 解析中...' : '+ 添加文件'}</span>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -123,12 +147,25 @@ export default function ReviewPage() {
                   disabled={uploading}
                 />
               </label>
-              <span className="text-xs text-gray-400">{content.length} 字</span>
             </div>
-            {uploadedFiles.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {uploadedFiles.map((name, i) => (
-                  <span key={i} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">📄 {name}</span>
+
+            {docTexts.length === 0 ? (
+              <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center text-gray-400 text-sm">
+                支持 PDF、Word (.docx)、TXT，可同时上传多个文件
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {docTexts.map((doc, i) => (
+                  <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{doc.name.endsWith('.pdf') ? '📕' : doc.name.endsWith('.docx') ? '📘' : '📄'}</span>
+                      <div>
+                        <p className="text-sm font-medium text-gray-700">{doc.name}</p>
+                        <p className="text-xs text-gray-400">{doc.text.length} 字符已解析</p>
+                      </div>
+                    </div>
+                    <button onClick={() => removeDoc(i)} className="text-gray-300 hover:text-red-400 transition-colors text-lg leading-none">×</button>
+                  </div>
                 ))}
               </div>
             )}
@@ -136,7 +173,7 @@ export default function ReviewPage() {
 
           <button
             onClick={handleReview}
-            disabled={streaming || !content.trim()}
+            disabled={streaming || !hasInput}
             className="btn-primary w-full py-3 text-base"
           >
             {streaming ? '✨ AI 复盘中...' : '开始复盘'}
@@ -146,18 +183,11 @@ export default function ReviewPage() {
             <div className="card">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-semibold text-gray-800">复盘报告</h2>
-                <button
-                  onClick={() => setShowMindMap(!showMindMap)}
-                  className="text-sm text-blue-600 hover:underline"
-                >
+                <button onClick={() => setShowMindMap(!showMindMap)} className="text-sm text-blue-600 hover:underline">
                   {showMindMap ? '查看文档' : '🗺️ 思维导图'}
                 </button>
               </div>
-              {showMindMap ? (
-                <MindMap content={result} />
-              ) : (
-                <MarkdownRenderer content={result} streaming={streaming} />
-              )}
+              {showMindMap ? <MindMap content={result} /> : <MarkdownRenderer content={result} streaming={streaming} />}
             </div>
           )}
         </div>
@@ -171,8 +201,6 @@ export default function ReviewPage() {
             <div>
               <button onClick={() => setSelectedHistory(null)} className="text-sm text-blue-600 mb-4 flex items-center gap-1">← 返回列表</button>
               <div className="card">
-                <h3 className="font-semibold mb-3">原始内容</h3>
-                <p className="text-sm text-gray-600 mb-4 whitespace-pre-wrap">{selectedHistory.content}</p>
                 <h3 className="font-semibold mb-3">复盘报告</h3>
                 <MarkdownRenderer content={selectedHistory.result} />
               </div>
