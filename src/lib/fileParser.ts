@@ -15,8 +15,9 @@ async function loadMammoth(): Promise<any> {
 }
 
 async function parsePDF(file: File): Promise<string> {
-  const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist')
-  GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs'
+  const pdfjsLib = await import('pdfjs-dist')
+  const { getDocument, GlobalWorkerOptions, version } = pdfjsLib
+  GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${version}/build/pdf.worker.min.mjs`
 
   const arrayBuffer = await file.arrayBuffer()
   const pdf = await getDocument({ data: arrayBuffer }).promise
