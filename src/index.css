@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-gradient-to-r from-blue-600 to-cyan-500 text-white px-4 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6;
+  }
+  .input {
+    @apply w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+  }
+  .textarea {
+    @apply w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none;
+  }
+}
+
+/* Markdown 样式 */
+.markdown-body h1 { @apply text-2xl font-bold mb-4 mt-6; }
+.markdown-body h2 { @apply text-xl font-bold mb-3 mt-5 text-blue-700; }
+.markdown-body h3 { @apply text-lg font-semibold mb-2 mt-4 text-blue-600; }
+.markdown-body p { @apply mb-3 leading-relaxed; }
+.markdown-body ul { @apply list-disc list-inside mb-3 space-y-1; }
+.markdown-body ol { @apply list-decimal list-inside mb-3 space-y-1; }
+.markdown-body li { @apply ml-2; }
+.markdown-body strong { @apply font-semibold text-gray-900; }
+.markdown-body blockquote { @apply border-l-4 border-blue-300 pl-4 italic text-gray-600 my-3; }
+.markdown-body code { @apply bg-gray-100 px-1 rounded text-sm font-mono; }
+.markdown-body hr { @apply my-4 border-gray-200; }
+
+/* 流式输出光标 */
+.streaming-cursor::after {
+  content: '▋';
+  animation: blink 1s infinite;
+  color: #3b82f6;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
