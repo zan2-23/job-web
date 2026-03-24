@@ -21,7 +21,12 @@ const SYSTEM_PROMPT = `你是一位专业的职场顾问，擅长帮助求职者
 - 语气专业但不刻板，像一个真正懂你的职场顾问`
 
 export default function ReviewPage() {
-  const [messages, setMessages] = useState<ChatMsg[]>([])
+  const [messages, setMessages] = useState<ChatMsg[]>(() => {
+    try {
+      const saved = sessionStorage.getItem('review_messages')
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })
   const [input, setInput] = useState('')
   const [docTexts, setDocTexts] = useState<{ name: string; text: string }[]>([])
   const [streaming, setStreaming] = useState(false)
@@ -31,8 +36,16 @@ export default function ReviewPage() {
   const [selectedHistory, setSelectedHistory] = useState<Review | null>(null)
   const [tab, setTab] = useState<'chat' | 'history'>('chat')
   const [uploading, setUploading] = useState(false)
+  const [savedToHistory, setSavedToHistory] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  // 消息变化时同步到 sessionStorage
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('review_messages', JSON.stringify(messages))
+    } catch {}
+  }, [messages])
 
   useEffect(() => {
     loadHistory()
@@ -113,17 +126,31 @@ export default function ReviewPage() {
           setStreaming(false)
           setStreamingContent('')
           const assistantMsg: ChatMsg = { role: 'assistant', content: full }
-          setMessages(prev => [...prev, assistantMsg])
+          const finalMessages = [...newMessages, assistantMsg]
+          setMessages(finalMessages)
 
-          // 保存到历史
+          // 保存/更新历史：把完整对话存为一条记录
           const { data: { user } } = await supabase.auth.getUser()
-          if (user && newMessages.length === 1) {
-            // 第一轮才保存
-            await supabase.from('reviews').insert({
-              user_id: user.id,
-              content: userContent,
-              result: full,
-            })
+          if (user) {
+            const fullConversation = finalMessages
+              .map(m => `【${m.role === 'user' ? '我' : 'AI'}】\n${m.content}`)
+              .join('\n\n---\n\n')
+            const firstUserMsg = finalMessages.find(m => m.role === 'user')?.content || ''
+            const savedId = sessionStorage.getItem('review_current_id')
+
+            if (savedId) {
+              await supabase.from('reviews').update({
+                content: firstUserMsg.slice(0, 200),
+                result: fullConversation,
+              }).eq('id', savedId)
+            } else {
+              const { data } = await supabase.from('reviews').insert({
+                user_id: user.id,
+                content: firstUserMsg.slice(0, 200),
+                result: fullConversation,
+              }).select().single()
+              if (data?.id) sessionStorage.setItem('review_current_id', data.id)
+            }
             loadHistory()
           }
         }
@@ -140,6 +167,8 @@ export default function ReviewPage() {
     setDocTexts([])
     setInput('')
     setShowMindMap(false)
+    sessionStorage.removeItem('review_messages')
+    sessionStorage.removeItem('review_current_id')
   }
 
   // 最后一条 AI 消息，用于思维导图
@@ -288,7 +317,12 @@ export default function ReviewPage() {
             history.map(item => (
               <div key={item.id} className="card cursor-pointer hover:border-blue-200 transition-colors" onClick={() => setSelectedHistory(item)}>
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-700 truncate flex-1">{item.content.slice(0, 60)}...</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-700 truncate">{item.content.slice(0, 50) || '复盘记录'}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {item.result.split('---').length - 1} 轮对话
+                    </p>
+                  </div>
                   <span className="text-xs text-gray-400 ml-4 shrink-0">{new Date(item.created_at).toLocaleDateString('zh-CN')}</span>
                 </div>
               </div>
