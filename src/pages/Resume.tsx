@@ -5,19 +5,39 @@ import MarkdownRenderer from '../components/MarkdownRenderer'
 import { parseFiles } from '../lib/fileParser'
 
 export default function ResumePage() {
-  const [step, setStep] = useState<1 | 2>(1)
-  const [experience, setExperience] = useState('')
+  const [step, setStep] = useState<1 | 2>(() => {
+    try { return (parseInt(sessionStorage.getItem('resume_step') || '1') as 1 | 2) } catch { return 1 }
+  })
+  const [experience, setExperience] = useState(() => {
+    try { return sessionStorage.getItem('resume_experience') || '' } catch { return '' }
+  })
   const [expDocs, setExpDocs] = useState<{ name: string; text: string }[]>([])
   const [resumeDocs, setResumeDocs] = useState<{ name: string; text: string }[]>([])
-  const [baseResume, setBaseResume] = useState('')
-  const [jdContent, setJdContent] = useState('')
-  const [finalResume, setFinalResume] = useState('')
+  const [baseResume, setBaseResume] = useState(() => {
+    try { return sessionStorage.getItem('resume_base') || '' } catch { return '' }
+  })
+  const [jdContent, setJdContent] = useState(() => {
+    try { return sessionStorage.getItem('resume_jd') || '' } catch { return '' }
+  })
+  const [finalResume, setFinalResume] = useState(() => {
+    try { return sessionStorage.getItem('resume_final') || '' } catch { return '' }
+  })
   const [streaming, setStreaming] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [savedId, setSavedId] = useState<string | null>(null)
+  const [savedId, setSavedId] = useState<string | null>(() => {
+    try { return sessionStorage.getItem('resume_saved_id') } catch { return null }
+  })
   const [uploading, setUploading] = useState<string | null>(null)
   const expFileRef = useRef<HTMLInputElement>(null)
   const resumeFileRef = useRef<HTMLInputElement>(null)
+
+  // 持久化
+  useEffect(() => { try { sessionStorage.setItem('resume_step', String(step)) } catch {} }, [step])
+  useEffect(() => { try { sessionStorage.setItem('resume_experience', experience) } catch {} }, [experience])
+  useEffect(() => { try { sessionStorage.setItem('resume_base', baseResume) } catch {} }, [baseResume])
+  useEffect(() => { try { sessionStorage.setItem('resume_jd', jdContent) } catch {} }, [jdContent])
+  useEffect(() => { try { sessionStorage.setItem('resume_final', finalResume) } catch {} }, [finalResume])
+  useEffect(() => { try { if (savedId) sessionStorage.setItem('resume_saved_id', savedId) } catch {} }, [savedId])
 
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -216,7 +236,10 @@ export default function ResumePage() {
                 <button onClick={() => handleCopy(currentResume)} className="text-sm text-blue-600 hover:underline">
                   {copied ? '✓ 已复制' : '复制 Markdown'}
                 </button>
-                <button onClick={() => { setBaseResume(''); setFinalResume(''); setStep(1) }} className="text-sm text-gray-400 hover:text-red-500">重新生成</button>
+                <button onClick={() => {
+  setBaseResume(''); setFinalResume(''); setStep(1); setExperience(''); setJdContent(''); setSavedId(null)
+  ;['resume_step','resume_experience','resume_base','resume_jd','resume_final','resume_saved_id'].forEach(k => sessionStorage.removeItem(k))
+}} className="text-sm text-gray-400 hover:text-red-500">重新生成</button>
               </div>
             </div>
             <MarkdownRenderer content={currentResume} streaming={streaming} />

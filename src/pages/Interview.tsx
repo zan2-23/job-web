@@ -11,19 +11,26 @@ interface ChatMessage {
 }
 
 export default function InterviewPage() {
-  const [jd, setJd] = useState('')
+  const [jd, setJd] = useState(() => { try { return sessionStorage.getItem('interview_jd') || '' } catch { return '' } })
   const [reviews, setReviews] = useState<Review[]>([])
   const [selectedReview, setSelectedReview] = useState('')
-  const [result, setResult] = useState('')
+  const [result, setResult] = useState(() => { try { return sessionStorage.getItem('interview_result') || '' } catch { return '' } })
   const [streaming, setStreaming] = useState(false)
   const [tab, setTab] = useState<'prep' | 'mock'>('prep')
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
+    try { const s = sessionStorage.getItem('interview_chat'); return s ? JSON.parse(s) : [] } catch { return [] }
+  })
   const [userInput, setUserInput] = useState('')
   const [mockStreaming, setMockStreaming] = useState(false)
   const [jdUploading, setJdUploading] = useState(false)
   const [jdFiles, setJdFiles] = useState<string[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
   const jdFileRef = useRef<HTMLInputElement>(null)
+
+  // 持久化
+  useEffect(() => { try { sessionStorage.setItem('interview_jd', jd) } catch {} }, [jd])
+  useEffect(() => { try { sessionStorage.setItem('interview_result', result) } catch {} }, [result])
+  useEffect(() => { try { sessionStorage.setItem('interview_chat', JSON.stringify(chatMessages)) } catch {} }, [chatMessages])
 
   useEffect(() => {
     loadReviews()
@@ -296,7 +303,7 @@ ${reviewContext ? `候选人背景：${reviewContext.slice(0, 500)}` : ''}
                   发送
                 </button>
               </div>
-              <button onClick={() => setChatMessages([])} className="text-sm text-gray-400 hover:text-red-500 w-full text-center">重新开始面试</button>
+              <button onClick={() => { setChatMessages([]); sessionStorage.removeItem('interview_chat') }} className="text-sm text-gray-400 hover:text-red-500 w-full text-center">重新开始面试</button>
             </>
           )}
         </div>
