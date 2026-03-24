@@ -1,8 +1,10 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { streamDeepSeek } from '../lib/deepseek'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import { parseFiles } from '../lib/fileParser'
+
+type ResumeStyle = 'ability' | 'project'
 
 export default function ResumePage() {
   const [step, setStep] = useState<1 | 2>(() => {
@@ -10,6 +12,9 @@ export default function ResumePage() {
   })
   const [experience, setExperience] = useState(() => {
     try { return sessionStorage.getItem('resume_experience') || '' } catch { return '' }
+  })
+  const [resumeStyle, setResumeStyle] = useState<ResumeStyle>(() => {
+    try { return (sessionStorage.getItem('resume_style') as ResumeStyle) || 'ability' } catch { return 'ability' }
   })
   const [expDocs, setExpDocs] = useState<{ name: string; text: string }[]>([])
   const [resumeDocs, setResumeDocs] = useState<{ name: string; text: string }[]>([])
@@ -34,6 +39,7 @@ export default function ResumePage() {
   // 持久化
   useEffect(() => { try { sessionStorage.setItem('resume_step', String(step)) } catch {} }, [step])
   useEffect(() => { try { sessionStorage.setItem('resume_experience', experience) } catch {} }, [experience])
+  useEffect(() => { try { sessionStorage.setItem('resume_style', resumeStyle) } catch {} }, [resumeStyle])
   useEffect(() => { try { sessionStorage.setItem('resume_base', baseResume) } catch {} }, [baseResume])
   useEffect(() => { try { sessionStorage.setItem('resume_jd', jdContent) } catch {} }, [jdContent])
   useEffect(() => { try { sessionStorage.setItem('resume_final', finalResume) } catch {} }, [finalResume])
@@ -63,6 +69,11 @@ export default function ResumePage() {
     }
   }
 
+  const resetAll = () => {
+    setBaseResume(''); setFinalResume(''); setStep(1); setExperience(''); setJdContent(''); setSavedId(null)
+    ;['resume_step','resume_experience','resume_base','resume_jd','resume_final','resume_saved_id'].forEach(k => sessionStorage.removeItem(k))
+  }
+
   const generateBaseResume = async () => {
     const expFull = [
       experience.trim(),
@@ -73,16 +84,24 @@ export default function ResumePage() {
     setFinalResume('')
     setStreaming(true)
 
+    const stylePrompt = resumeStyle === 'ability'
+      ? `请按【能力维度】组织简历，结构如下：
+- 个人简介（3-4句，突出核心能力标签）
+- 核心能力（数据分析/用户运营/项目管理等能力维度，每个维度下列举具体案例和数据）
+- 工作/实习经历（简要列出，重点在能力展示）
+- 技能`
+      : `请按【项目经历】组织简历，结构如下：
+- 个人简介（3-4句，突出项目背景和成果）
+- 核心项目（每个项目独立呈现，包含背景、你的角色、行动、成果，用数据量化）
+- 工作/实习经历（公司/时间/职位）
+- 技能`
+
     const messages = [
       {
         role: 'system',
         content: `你是一位专业的简历优化顾问，擅长用 STAR 法则提炼工作经历，写出有亮点、有数据的简历。
-请根据用户提供的工作经历，生成一份完整的简历，Markdown 格式，包含：
-- 个人简介（3-4句话，突出核心优势）
-- 工作/实习经历（每段用 STAR 法则，量化成果）
-- 项目经历（如有）
-- 技能
-注意：语言简洁有力，突出数据和结果，避免空话。`,
+${stylePrompt}
+注意：语言简洁有力，突出数据和结果，避免空话。输出 Markdown 格式。`,
       },
       {
         role: 'user',
@@ -97,6 +116,7 @@ export default function ResumePage() {
         setBaseResume(full)
       }, async () => {
         setStreaming(false)
+        setStep(2)
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
           const { data } = await supabase.from('resumes').insert({
@@ -160,20 +180,43 @@ export default function ResumePage() {
 
       {/* 步骤指示 */}
       <div className="flex items-center gap-3 mb-6">
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${step === 1 ? 'bg-blue-600 text-white' : 'bg-green-100 text-green-700'}`}>
-          <span>{step > 1 ? '✓' : '1'}</span>
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${!baseResume ? 'bg-blue-600 text-white' : 'bg-green-100 text-green-700'}`}>
+          <span>{baseResume ? '✓' : '1'}</span>
           <span>生成基础简历</span>
         </div>
         <div className="flex-1 h-0.5 bg-gray-200" />
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${step === 2 ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${baseResume ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
           <span>2</span>
           <span>JD 定制简历</span>
         </div>
       </div>
 
-      {/* 第一步 */}
       {!baseResume ? (
         <div className="space-y-4">
+          {/* 简历风格选择 */}
+          <div className="card">
+            <label className="block text-sm font-medium text-gray-700 mb-3">简历生成偏好</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setResumeStyle('ability')}
+                className={`p-4 rounded-xl border-2 text-left transition-all ${resumeStyle === 'ability' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
+              >
+                <div className="text-xl mb-1">💡</div>
+                <div className="font-medium text-sm text-gray-800">按能力维度</div>
+                <div className="text-xs text-gray-500 mt-1">突出数据分析、用户运营等能力标签，适合综合型岗位</div>
+              </button>
+              <button
+                onClick={() => setResumeStyle('project')}
+                className={`p-4 rounded-xl border-2 text-left transition-all ${resumeStyle === 'project' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
+              >
+                <div className="text-xl mb-1">🚀</div>
+                <div className="font-medium text-sm text-gray-800">按项目经历</div>
+                <div className="text-xs text-gray-500 mt-1">以项目为核心展示成果，适合有明确项目积累的候选人</div>
+              </button>
+            </div>
+          </div>
+
+          {/* 经历输入 */}
           <div className="card">
             <label className="block text-sm font-medium text-gray-700 mb-2">工作/实习经历描述</label>
             <textarea className="textarea" rows={5} value={experience} onChange={e => setExperience(e.target.value)} placeholder="直接输入经历描述，或上传文档，或两者结合..." />
@@ -199,8 +242,10 @@ export default function ResumePage() {
               </div>
             )}
           </div>
+
+          {/* 原始简历 */}
           <div className="card">
-            <label className="block text-sm font-medium text-gray-700 mb-2">原始简历（可选）</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">原始简历（可选）</label>
             <p className="text-xs text-gray-400 mb-2">上传现有简历，AI 会参考格式和内容进行优化</p>
             <label className={`flex items-center gap-1.5 text-sm cursor-pointer px-3 py-1.5 rounded-lg border transition-all w-fit ${uploading === 'resume' ? 'text-gray-400 border-gray-200' : 'text-blue-600 border-blue-200 hover:bg-blue-50'}`}>
               <span>{uploading === 'resume' ? '⏳ 解析中...' : '+ 上传简历文件'}</span>
@@ -222,33 +267,30 @@ export default function ResumePage() {
               </div>
             )}
           </div>
+
           <button onClick={generateBaseResume} disabled={streaming || (!experience.trim() && expDocs.length === 0)} className="btn-primary w-full py-3">
-            {streaming ? '✨ 生成中...' : '生成基础简历'}
+            {streaming ? '✨ 生成中...' : `生成简历（${resumeStyle === 'ability' ? '按能力维度' : '按项目经历'}）`}
           </button>
         </div>
       ) : (
         <div className="space-y-4">
-          {/* 简历展示 */}
           <div className="card">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold">{finalResume ? '🎯 定制简历' : '📄 基础简历'}</h2>
-              <div className="flex gap-2">
+              <div className="flex gap-3">
                 <button onClick={() => handleCopy(currentResume)} className="text-sm text-blue-600 hover:underline">
                   {copied ? '✓ 已复制' : '复制 Markdown'}
                 </button>
-                <button onClick={() => {
-  setBaseResume(''); setFinalResume(''); setStep(1); setExperience(''); setJdContent(''); setSavedId(null)
-  ;['resume_step','resume_experience','resume_base','resume_jd','resume_final','resume_saved_id'].forEach(k => sessionStorage.removeItem(k))
-}} className="text-sm text-gray-400 hover:text-red-500">重新生成</button>
+                <button onClick={resetAll} className="text-sm text-gray-400 hover:text-red-500">重新生成</button>
               </div>
             </div>
             <MarkdownRenderer content={currentResume} streaming={streaming} />
           </div>
 
-          {/* 第二步：JD 定制 */}
           <div className="card">
-            <h3 className="font-medium mb-3">🎯 根据 JD 定制简历</h3>
-            <textarea className="textarea" rows={5} value={jdContent} onChange={e => setJdContent(e.target.value)} placeholder="粘贴目标岗位的职位描述 (JD)，AI 会针对性优化简历..." />
+            <h3 className="font-medium mb-1">🎯 根据 JD 定制简历</h3>
+            <p className="text-xs text-gray-400 mb-3">粘贴目标岗位 JD，AI 会针对性调整措辞和重点</p>
+            <textarea className="textarea" rows={5} value={jdContent} onChange={e => setJdContent(e.target.value)} placeholder="粘贴岗位职责描述..." />
             <button onClick={generateCustomResume} disabled={streaming || !jdContent.trim()} className="btn-primary w-full py-3 mt-3">
               {streaming ? '✨ 定制中...' : '生成定制简历'}
             </button>
