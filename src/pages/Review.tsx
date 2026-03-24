@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { streamDeepSeek } from '../lib/deepseek'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import MindMap from '../components/MindMap'
+import { parseFiles } from '../lib/fileParser'
 import { Review } from '../types'
 
 export default function ReviewPage() {
@@ -13,6 +14,9 @@ export default function ReviewPage() {
   const [history, setHistory] = useState<Review[]>([])
   const [selectedHistory, setSelectedHistory] = useState<Review | null>(null)
   const [tab, setTab] = useState<'new' | 'history'>('new')
+  const [uploading, setUploading] = useState(false)
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadHistory()
@@ -26,13 +30,18 @@ export default function ReviewPage() {
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.type === 'text/plain') {
-      const text = await file.text()
-      setContent(prev => prev + '\n\n【上传文档内容】\n' + text)
-    } else {
-      alert('目前支持 TXT 格式文件，PDF/Word 请复制粘贴文本内容')
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setUploading(true)
+    try {
+      const text = await parseFiles(files)
+      setContent(prev => prev ? prev + '\n\n' + text : text)
+      setUploadedFiles(prev => [...prev, ...Array.from(files).map(f => f.name)])
+    } catch (err: any) {
+      alert('文件解析失败：' + err.message)
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -103,11 +112,26 @@ export default function ReviewPage() {
             />
             <div className="flex items-center justify-between mt-3">
               <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-blue-600">
-                <span>📎 上传文档</span>
-                <input type="file" accept=".txt,.md" className="hidden" onChange={handleFileUpload} />
+                <span>{uploading ? '⏳ 解析中...' : '📎 上传文档（PDF/Word/TXT，可多选）'}</span>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.txt,.md"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  disabled={uploading}
+                />
               </label>
               <span className="text-xs text-gray-400">{content.length} 字</span>
             </div>
+            {uploadedFiles.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {uploadedFiles.map((name, i) => (
+                  <span key={i} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">📄 {name}</span>
+                ))}
+              </div>
+            )}
           </div>
 
           <button

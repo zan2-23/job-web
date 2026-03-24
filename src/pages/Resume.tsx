@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { streamDeepSeek } from '../lib/deepseek'
 import MarkdownRenderer from '../components/MarkdownRenderer'
+import { parseFiles } from '../lib/fileParser'
 
 export default function ResumePage() {
   const [step, setStep] = useState<1 | 2>(1)
@@ -13,15 +14,31 @@ export default function ResumePage() {
   const [streaming, setStreaming] = useState(false)
   const [copied, setCopied] = useState(false)
   const [savedId, setSavedId] = useState<string | null>(null)
+  const [uploading, setUploading] = useState<string | null>(null)
+  const [uploadedExp, setUploadedExp] = useState<string[]>([])
+  const [uploadedResume, setUploadedResume] = useState<string[]>([])
+  const expFileRef = useRef<HTMLInputElement>(null)
+  const resumeFileRef = useRef<HTMLInputElement>(null)
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, setter: (v: string) => void) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.type === 'text/plain' || file.name.endsWith('.md')) {
-      const text = await file.text()
-      setter(prev => prev + '\n\n' + text)
-    } else {
-      alert('目前支持 TXT/MD 格式，PDF/Word 请复制粘贴文本')
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setter: (v: string) => void,
+    namesSetter: (fn: (prev: string[]) => string[]) => void,
+    inputRef: React.RefObject<HTMLInputElement>,
+    uploadingKey: string
+  ) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setUploading(uploadingKey)
+    try {
+      const text = await parseFiles(files)
+      setter(prev => prev ? prev + '\n\n' + text : text)
+      namesSetter(prev => [...prev, ...Array.from(files).map(f => f.name)])
+    } catch (err: any) {
+      alert('文件解析失败：' + err.message)
+    } finally {
+      setUploading(null)
+      if (inputRef.current) inputRef.current.value = ''
     }
   }
 
@@ -135,14 +152,48 @@ export default function ResumePage() {
           <div className="card">
             <label className="block text-sm font-medium text-gray-700 mb-2">工作/实习经历描述 *</label>
             <textarea className="textarea" rows={7} value={experience} onChange={e => setExperience(e.target.value)} placeholder="详细描述你的工作内容、负责的项目、取得的成果..." />
+            <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-blue-600 mt-2">
+              <span>{uploading === 'exp' ? '⏳ 解析中...' : '📎 上传经历文档（PDF/Word/TXT，可多选）'}</span>
+              <input
+                ref={expFileRef}
+                type="file"
+                accept=".pdf,.docx,.txt,.md"
+                multiple
+                className="hidden"
+                disabled={!!uploading}
+                onChange={e => handleFileUpload(e, setExperience, setUploadedExp, expFileRef, 'exp')}
+              />
+            </label>
+            {uploadedExp.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {uploadedExp.map((name, i) => (
+                  <span key={i} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">📄 {name}</span>
+                ))}
+              </div>
+            )}
           </div>
           <div className="card">
             <label className="block text-sm font-medium text-gray-700 mb-2">原始简历（可选）</label>
             <textarea className="textarea" rows={4} value={originalResume} onChange={e => setOriginalResume(e.target.value)} placeholder="粘贴你现有的简历内容，AI 会参考并优化..." />
             <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-blue-600 mt-2">
-              <span>📎 上传简历文件</span>
-              <input type="file" accept=".txt,.md" className="hidden" onChange={e => handleFileUpload(e, setOriginalResume)} />
+              <span>{uploading === 'resume' ? '⏳ 解析中...' : '📎 上传简历文件（PDF/Word/TXT，可多选）'}</span>
+              <input
+                ref={resumeFileRef}
+                type="file"
+                accept=".pdf,.docx,.txt,.md"
+                multiple
+                className="hidden"
+                disabled={!!uploading}
+                onChange={e => handleFileUpload(e, setOriginalResume, setUploadedResume, resumeFileRef, 'resume')}
+              />
             </label>
+            {uploadedResume.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {uploadedResume.map((name, i) => (
+                  <span key={i} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">📄 {name}</span>
+                ))}
+              </div>
+            )}
           </div>
           <button onClick={generateBaseResume} disabled={streaming || !experience.trim()} className="btn-primary w-full py-3">
             {streaming ? '✨ 生成中...' : '生成基础简历'}

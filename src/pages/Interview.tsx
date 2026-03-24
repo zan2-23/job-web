@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { streamDeepSeek } from '../lib/deepseek'
 import MarkdownRenderer from '../components/MarkdownRenderer'
+import { parseFiles } from '../lib/fileParser'
 import { Review } from '../types'
 
 interface ChatMessage {
@@ -19,7 +20,10 @@ export default function InterviewPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [userInput, setUserInput] = useState('')
   const [mockStreaming, setMockStreaming] = useState(false)
+  const [jdUploading, setJdUploading] = useState(false)
+  const [jdFiles, setJdFiles] = useState<string[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const jdFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadReviews()
@@ -174,6 +178,39 @@ ${reviewContext ? `候选人背景：${reviewContext.slice(0, 500)}` : ''}
       <div className="card mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-2">目标岗位 JD *</label>
         <textarea className="textarea" rows={4} value={jd} onChange={e => setJd(e.target.value)} placeholder="粘贴岗位职责描述..." />
+        <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-blue-600 mt-2">
+          <span>{jdUploading ? '⏳ 解析中...' : '📎 上传 JD 文件（PDF/Word/TXT，可多选）'}</span>
+          <input
+            ref={jdFileRef}
+            type="file"
+            accept=".pdf,.docx,.txt,.md"
+            multiple
+            className="hidden"
+            disabled={jdUploading}
+            onChange={async (e) => {
+              const files = e.target.files
+              if (!files || files.length === 0) return
+              setJdUploading(true)
+              try {
+                const text = await parseFiles(files)
+                setJd(prev => prev ? prev + '\n\n' + text : text)
+                setJdFiles(prev => [...prev, ...Array.from(files).map(f => f.name)])
+              } catch (err: any) {
+                alert('文件解析失败：' + err.message)
+              } finally {
+                setJdUploading(false)
+                if (jdFileRef.current) jdFileRef.current.value = ''
+              }
+            }}
+          />
+        </label>
+        {jdFiles.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {jdFiles.map((name, i) => (
+              <span key={i} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">📄 {name}</span>
+            ))}
+          </div>
+        )}
 
         {reviews.length > 0 && (
           <div className="mt-3">
