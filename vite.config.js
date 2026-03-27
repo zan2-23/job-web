@@ -1,7 +1,5 @@
-import { createRequire } from 'module'
-const require = createRequire(import.meta.url)
-const react = require('/home/node/.npm-global/lib/node_modules/@vitejs/plugin-react/dist/index.js')
+import react from '@vitejs/plugin-react'
 
 export default {
-  plugins: [react.default()],
+  plugins: [react()],
 }
