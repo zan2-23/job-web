@@ -1,10 +1,94 @@
 import { useState, useRef, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { streamDeepSeek } from '../lib/deepseek'
+import { streamDeepSeek, polishResumeSection } from '../lib/deepseek'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import { parseFiles } from '../lib/fileParser'
 
 type ResumeStyle = 'ability' | 'project'
+
+// ── 解析 Markdown 为段落列表 ──
+function parseResumeIntoSections(markdown: string): { title: string; content: string; startLine: number; endLine: number }[] {
+  const lines = markdown.split('\n')
+  const sections: { title: string; content: string; startLine: number; endLine: number }[] = []
+  let currentTitle = ''
+  let currentStart = 0
+  let currentLines: string[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const isHeading = /^#{1,3}\s/.test(line)
+
+    if (isHeading) {
+      // 保存上一段
+      if (currentTitle && currentLines.length > 0) {
+        sections.push({
+          title: currentTitle,
+          content: currentLines.join('\n').trim(),
+          startLine: currentStart,
+          endLine: i - 1,
+        })
+      }
+      currentTitle = line.replace(/^#+\s*/, '').trim()
+      currentStart = i
+      currentLines = [line]
+    } else {
+      currentLines.push(line)
+    }
+  }
+
+  // 最后一段
+  if (currentTitle && currentLines.length > 0) {
+    sections.push({
+      title: currentTitle,
+      content: currentLines.join('\n').trim(),
+      startLine: currentStart,
+      endLine: lines.length - 1,
+    })
+  }
+
+  return sections
+}
+
+// ── 把某段内容替换回完整 Markdown ──
+function replaceSection(
+  fullMarkdown: string,
+  section: { startLine: number; endLine: number },
+  newContent: string
+): string {
+  const lines = fullMarkdown.split('\n')
+  const before = lines.slice(0, section.startLine)
+  const after = lines.slice(section.endLine + 1)
+  return [...before, newContent, ...after].join('\n')
+}
+
+// ── 下载为 .txt 文件 ──
+function downloadAsTxt(content: string, filename: string) {
+  // 把 Markdown 转为更干净的纯文本
+  const plain = content
+    .replace(/^#{1,6}\s+/gm, '')          // 去掉标题 #
+    .replace(/\*\*(.+?)\*\*/g, '$1')       // 去掉粗体 **
+    .replace(/\*(.+?)\*/g, '$1')           // 去掉斜体 *
+    .replace(/^[-*]\s+/gm, '• ')           // 列表符号统一
+    .replace(/^\d+\.\s+/gm, match => match) // 有序列表保留
+  const blob = new Blob([plain], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ── 下载为 Markdown 文件 ──
+function downloadAsMd(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 export default function ResumePage() {
   const [step, setStep] = useState<1 | 2>(() => {
@@ -33,6 +117,12 @@ export default function ResumePage() {
     try { return sessionStorage.getItem('resume_saved_id') } catch { return null }
   })
   const [uploading, setUploading] = useState<string | null>(null)
+
+  // 分段优化状态
+  const [sections, setSections] = useState<{ title: string; content: string; startLine: number; endLine: number }[]>([])
+  const [polishingSection, setPolishingSection] = useState<string | null>(null) // 正在优化的段落 title
+  const [sectionMode, setSectionMode] = useState(false) // 是否展开分段面板
+
   const expFileRef = useRef<HTMLInputElement>(null)
   const resumeFileRef = useRef<HTMLInputElement>(null)
 
@@ -44,6 +134,14 @@ export default function ResumePage() {
   useEffect(() => { try { sessionStorage.setItem('resume_jd', jdContent) } catch {} }, [jdContent])
   useEffect(() => { try { sessionStorage.setItem('resume_final', finalResume) } catch {} }, [finalResume])
   useEffect(() => { try { if (savedId) sessionStorage.setItem('resume_saved_id', savedId) } catch {} }, [savedId])
+
+  // 当 resume 内容变化时，自动解析段落
+  const currentResume = finalResume || baseResume
+  useEffect(() => {
+    if (currentResume) {
+      setSections(parseResumeIntoSections(currentResume))
+    }
+  }, [currentResume])
 
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -70,7 +168,8 @@ export default function ResumePage() {
   }
 
   const resetAll = () => {
-    setBaseResume(''); setFinalResume(''); setStep(1); setExperience(''); setJdContent(''); setSavedId(null)
+    setBaseResume(''); setFinalResume(''); setStep(1); setExperience('')
+    setJdContent(''); setSavedId(null); setSections([]); setSectionMode(false)
     ;['resume_step','resume_experience','resume_base','resume_jd','resume_final','resume_saved_id'].forEach(k => sessionStorage.removeItem(k))
   }
 
@@ -141,11 +240,12 @@ ${stylePrompt}
     const messages = [
       {
         role: 'system',
-        content: `你是一位专业的简历顾问，擅长根据岗位 JD 定制简历，突出与岗位匹配的经历和技能。`,
+        content: `你是一位专业的简历顾问，擅长根据岗位 JD 定制简历，突出与岗位匹配的经历和技能。
+重要原则：保持原有 Markdown 格式结构不变，只调整措辞和重点，不增删段落。`,
       },
       {
         role: 'user',
-        content: `请根据以下 JD，对我的简历进行定制优化，重点突出与岗位匹配的内容，调整措辞贴合岗位需求：\n\n【岗位 JD】\n${jdContent}\n\n【我的简历】\n${baseResume}`,
+        content: `请根据以下 JD，对我的简历进行定制优化，重点突出与岗位匹配的内容，调整措辞贴合岗位需求。保持原有的格式结构：\n\n【岗位 JD】\n${jdContent}\n\n【我的简历】\n${baseResume}`,
       },
     ]
 
@@ -166,13 +266,38 @@ ${stylePrompt}
     }
   }
 
+  // ── 单段优化 ──
+  const handlePolishSection = async (section: { title: string; content: string; startLine: number; endLine: number }) => {
+    setPolishingSection(section.title)
+    try {
+      const polished = await polishResumeSection(section.title, section.content)
+      const updated = replaceSection(currentResume, section, polished)
+      if (finalResume) {
+        setFinalResume(updated)
+      } else {
+        setBaseResume(updated)
+      }
+    } catch (e: any) {
+      alert('优化失败：' + e.message)
+    } finally {
+      setPolishingSection(null)
+    }
+  }
+
   const handleCopy = async (text: string) => {
     await navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const currentResume = finalResume || baseResume
+  const handleDownload = (format: 'txt' | 'md') => {
+    const filename = `简历_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}`
+    if (format === 'txt') {
+      downloadAsTxt(currentResume, `${filename}.txt`)
+    } else {
+      downloadAsMd(currentResume, `${filename}.md`)
+    }
+  }
 
   return (
     <div>
@@ -187,7 +312,7 @@ ${stylePrompt}
         <div className="flex-1 h-0.5 bg-gray-200" />
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${baseResume ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
           <span>2</span>
-          <span>JD 定制简历</span>
+          <span>JD 定制 & 精调</span>
         </div>
       </div>
 
@@ -274,27 +399,86 @@ ${stylePrompt}
         </div>
       ) : (
         <div className="space-y-4">
+
+          {/* 简历预览卡 */}
           <div className="card">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold">{finalResume ? '🎯 定制简历' : '📄 基础简历'}</h2>
-              <div className="flex gap-3">
+              <div className="flex gap-2 items-center flex-wrap justify-end">
                 <button onClick={() => handleCopy(currentResume)} className="text-sm text-blue-600 hover:underline">
-                  {copied ? '✓ 已复制' : '复制 Markdown'}
+                  {copied ? '✓ 已复制' : '复制 MD'}
                 </button>
+                {/* 下载按钮组 */}
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => handleDownload('txt')}
+                    className="text-sm px-2.5 py-1 rounded-lg bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-all"
+                  >
+                    ⬇ 下载 TXT
+                  </button>
+                  <button
+                    onClick={() => handleDownload('md')}
+                    className="text-sm px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-all"
+                  >
+                    ⬇ 下载 MD
+                  </button>
+                </div>
                 <button onClick={resetAll} className="text-sm text-gray-400 hover:text-red-500">重新生成</button>
               </div>
             </div>
             <MarkdownRenderer content={currentResume} streaming={streaming} />
           </div>
 
+          {/* 分段精调面板 */}
+          {!streaming && sections.length > 0 && (
+            <div className="card border-2 border-dashed border-blue-200">
+              <button
+                className="w-full flex items-center justify-between text-sm font-medium text-blue-700"
+                onClick={() => setSectionMode(!sectionMode)}
+              >
+                <span>✏️ 分段精调 — 选择某一段单独优化，不影响其他内容</span>
+                <span className="text-gray-400 text-xs">{sectionMode ? '收起 ▲' : '展开 ▼'}</span>
+              </button>
+
+              {sectionMode && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs text-gray-400 mb-3">点击某段右侧的「✨ 优化」按钮，AI 只会改这一段，格式和其他内容保持不变</p>
+                  {sections.map((section, i) => (
+                    <div key={i} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-800 truncate">{section.title}</div>
+                        <div className="text-xs text-gray-400 mt-0.5 truncate">{section.content.slice(0, 60).replace(/\n/g, ' ')}…</div>
+                      </div>
+                      <button
+                        onClick={() => handlePolishSection(section)}
+                        disabled={!!polishingSection}
+                        className={`ml-3 flex-shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${
+                          polishingSection === section.title
+                            ? 'bg-blue-100 text-blue-400 cursor-not-allowed'
+                            : polishingSection
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        {polishingSection === section.title ? '优化中…' : '✨ 优化'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* JD 定制 */}
           <div className="card">
             <h3 className="font-medium mb-1">🎯 根据 JD 定制简历</h3>
-            <p className="text-xs text-gray-400 mb-3">粘贴目标岗位 JD，AI 会针对性调整措辞和重点</p>
+            <p className="text-xs text-gray-400 mb-3">粘贴目标岗位 JD，AI 会针对性调整措辞和重点，保持格式结构不变</p>
             <textarea className="textarea" rows={5} value={jdContent} onChange={e => setJdContent(e.target.value)} placeholder="粘贴岗位职责描述..." />
             <button onClick={generateCustomResume} disabled={streaming || !jdContent.trim()} className="btn-primary w-full py-3 mt-3">
               {streaming ? '✨ 定制中...' : '生成定制简历'}
             </button>
           </div>
+
         </div>
       )}
     </div>
