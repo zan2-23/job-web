@@ -1,29 +1,67 @@
 /**
  * 文件解析器 — 支持 PDF、Word (.docx)、TXT、MD
- * PDF: pdfjs-dist（本地包，不走CDN）
- * Word: mammoth（本地包，不走CDN）
- * TXT/MD: 原生 FileReader
+ * PDF: pdfjs-dist via CDN（动态加载 script，不打包进 bundle）
+ * Word: mammoth（本地包）
+ * TXT/MD: 原生 File.text()
  */
 
-async function parsePDF(file: File): Promise<string> {
-  const pdfjsLib = await import('pdfjs-dist')
-  // 用本地 worker，不走 CDN
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.mjs',
-    import.meta.url
-  ).toString()
+const PDFJS_VERSION = '4.0.379'
+const PDFJS_CDN = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}`
 
+async function loadPdfjsLib(): Promise<any> {
+  if ((window as any).pdfjsLib) return (window as any).pdfjsLib
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = `${PDFJS_CDN}/build/pdf.min.mjs`
+    script.type = 'module'
+    script.onload = () => {
+      const lib = (window as any).pdfjsLib
+      if (lib) {
+        lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/build/pdf.worker.min.mjs`
+        resolve(lib)
+      } else {
+        reject(new Error('pdfjs-dist 加载失败'))
+      }
+    }
+    script.onerror = () => reject(new Error('pdfjs-dist CDN 加载失败，请检查网络'))
+    document.head.appendChild(script)
+  })
+}
+
+async function parsePDF(file: File): Promise<string> {
+  // 用 fetch + ArrayBuffer 方式，不依赖 ESM import
   const arrayBuffer = await file.arrayBuffer()
+
+  // 动态加载 pdfjs via CDN
+  const pdfjsLib = await new Promise<any>((resolve, reject) => {
+    if ((window as any).pdfjsLib) return resolve((window as any).pdfjsLib)
+
+    // 用 importmap-safe 的方式：直接用 fetch + eval 不可行
+    // 改用 Worker + Blob 方式直接解析
+    // 最简单可靠：用 fetch CDN JS
+    const s = document.createElement('script')
+    s.src = `${PDFJS_CDN}/legacy/build/pdf.min.js`
+    s.onload = () => {
+      const lib = (window as any).pdfjsLib
+      if (lib) {
+        lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/legacy/build/pdf.worker.min.js`
+        resolve(lib)
+      } else {
+        reject(new Error('pdfjsLib not found after script load'))
+      }
+    }
+    s.onerror = () => reject(new Error('pdfjs CDN 加载失败'))
+    document.head.appendChild(s)
+  })
+
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
   const pageTexts: string[] = []
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
     const content = await page.getTextContent()
-    const lineText = content.items
-      .map((item: any) => item.str)
-      .join(' ')
-    pageTexts.push(lineText)
+    pageTexts.push(content.items.map((item: any) => item.str).join(' '))
   }
 
   return pageTexts.join('\n').trim()
@@ -34,10 +72,6 @@ async function parseWord(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer()
   const result = await mammoth.extractRawText({ arrayBuffer })
   return result.value.trim()
-}
-
-async function parseTxt(file: File): Promise<string> {
-  return await file.text()
 }
 
 export async function parseFile(file: File): Promise<string> {
@@ -54,7 +88,7 @@ export async function parseFile(file: File): Promise<string> {
   } else if (name.endsWith('.doc')) {
     throw new Error('.doc 格式较旧，请另存为 .docx 后再上传')
   } else {
-    return await parseTxt(file)
+    return await file.text()
   }
 }
 
@@ -65,11 +99,7 @@ export async function parseFiles(files: FileList | File[]): Promise<string> {
   for (const file of fileArray) {
     try {
       const text = await parseFile(file)
-      if (!text.trim()) {
-        results.push(`【${file.name}】内容为空，请检查文件`)
-      } else {
-        results.push(`【${file.name}】\n${text}`)
-      }
+      results.push(text.trim() ? `【${file.name}】\n${text}` : `【${file.name}】内容为空`)
     } catch (err: any) {
       results.push(`【${file.name}】解析失败：${err.message}`)
     }
