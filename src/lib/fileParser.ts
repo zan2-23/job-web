@@ -1,37 +1,36 @@
 /**
- * 支持 PDF、Word (.docx)、TXT、MD 多文件解析
- * PDF 用 pdfjs-dist，Word 用 mammoth（CDN动态加载），TXT 直接读
+ * 文件解析器 — 支持 PDF、Word (.docx)、TXT、MD
+ * PDF: pdfjs-dist（本地包，不走CDN）
+ * Word: mammoth（本地包，不走CDN）
+ * TXT/MD: 原生 FileReader
  */
-
-async function loadMammoth(): Promise<any> {
-  if ((window as any).mammoth) return (window as any).mammoth
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = 'https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js'
-    script.onload = () => resolve((window as any).mammoth)
-    script.onerror = reject
-    document.head.appendChild(script)
-  })
-}
 
 async function parsePDF(file: File): Promise<string> {
   const pdfjsLib = await import('pdfjs-dist')
-  const { getDocument, GlobalWorkerOptions, version } = pdfjsLib
-  GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${version}/build/pdf.worker.min.mjs`
+  // 用本地 worker，不走 CDN
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url
+  ).toString()
 
   const arrayBuffer = await file.arrayBuffer()
-  const pdf = await getDocument({ data: arrayBuffer }).promise
-  let text = ''
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+  const pageTexts: string[] = []
+
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
     const content = await page.getTextContent()
-    text += content.items.map((item: any) => item.str).join(' ') + '\n'
+    const lineText = content.items
+      .map((item: any) => item.str)
+      .join(' ')
+    pageTexts.push(lineText)
   }
-  return text.trim()
+
+  return pageTexts.join('\n').trim()
 }
 
 async function parseWord(file: File): Promise<string> {
-  const mammoth = await loadMammoth()
+  const mammoth = await import('mammoth')
   const arrayBuffer = await file.arrayBuffer()
   const result = await mammoth.extractRawText({ arrayBuffer })
   return result.value.trim()
@@ -66,7 +65,11 @@ export async function parseFiles(files: FileList | File[]): Promise<string> {
   for (const file of fileArray) {
     try {
       const text = await parseFile(file)
-      results.push(`【${file.name}】\n${text}`)
+      if (!text.trim()) {
+        results.push(`【${file.name}】内容为空，请检查文件`)
+      } else {
+        results.push(`【${file.name}】\n${text}`)
+      }
     } catch (err: any) {
       results.push(`【${file.name}】解析失败：${err.message}`)
     }
