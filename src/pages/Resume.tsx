@@ -345,23 +345,32 @@ ${stylePrompt}
           <div className="card">
             <label className="block text-sm font-medium text-gray-700 mb-2">工作/实习经历描述</label>
             <textarea className="textarea" rows={5} value={experience} onChange={e => setExperience(e.target.value)} placeholder="直接输入经历描述，或上传文档，或两者结合..." />
-            <div className="flex items-center justify-between mt-2">
-              <label className={`flex items-center gap-1.5 text-sm cursor-pointer px-3 py-1.5 rounded-lg border transition-all ${uploading === 'exp' ? 'text-gray-400 border-gray-200' : 'text-blue-600 border-blue-200 hover:bg-blue-50'}`}>
-                <span>{uploading === 'exp' ? '⏳ 解析中...' : '+ 上传经历文档'}</span>
-                <input ref={expFileRef} type="file" accept=".pdf,.docx,.txt,.md" multiple className="hidden" disabled={!!uploading}
-                  onChange={e => handleFileUpload(e, setExpDocs, expFileRef, 'exp')} />
-              </label>
-            </div>
+
+            {/* 上传区域 */}
+            <label className={`mt-3 flex flex-col items-center justify-center gap-2 w-full rounded-xl border-2 border-dashed py-4 cursor-pointer transition-all ${uploading === 'exp' ? 'border-gray-200 bg-gray-50' : 'border-blue-200 bg-blue-50 hover:bg-blue-100'}`}>
+              {uploading === 'exp' ? (
+                <span className="text-sm text-gray-400">⏳ 解析中...</span>
+              ) : (
+                <>
+                  <span className="text-2xl">📎</span>
+                  <span className="text-sm font-medium text-blue-600">点击上传经历文档</span>
+                  <span className="text-xs text-gray-400">支持 PDF · Word (.docx) · TXT · MD，可多选</span>
+                </>
+              )}
+              <input ref={expFileRef} type="file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" multiple className="hidden" disabled={!!uploading}
+                onChange={e => handleFileUpload(e, setExpDocs, expFileRef, 'exp')} />
+            </label>
+
             {expDocs.length > 0 && (
               <div className="mt-2 space-y-1">
                 {expDocs.map((doc, i) => (
                   <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
                     <div className="flex items-center gap-2">
-                      <span>{doc.name.endsWith('.pdf') ? '📕' : '📘'}</span>
-                      <span className="text-sm text-gray-700">{doc.name}</span>
-                      <span className="text-xs text-gray-400">{doc.text.length} 字符</span>
+                      <span>{doc.name.endsWith('.pdf') ? '📕' : doc.name.endsWith('.docx') ? '📘' : '📄'}</span>
+                      <span className="text-sm text-gray-700 truncate max-w-[180px]">{doc.name}</span>
+                      <span className="text-xs text-gray-400">{doc.text.length} 字</span>
                     </div>
-                    <button onClick={() => setExpDocs(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 text-lg">×</button>
+                    <button onClick={() => setExpDocs(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 text-lg ml-2">×</button>
                   </div>
                 ))}
               </div>
@@ -371,22 +380,32 @@ ${stylePrompt}
           {/* 原始简历 */}
           <div className="card">
             <label className="block text-sm font-medium text-gray-700 mb-1">原始简历（可选）</label>
-            <p className="text-xs text-gray-400 mb-2">上传现有简历，AI 会参考格式和内容进行优化</p>
-            <label className={`flex items-center gap-1.5 text-sm cursor-pointer px-3 py-1.5 rounded-lg border transition-all w-fit ${uploading === 'resume' ? 'text-gray-400 border-gray-200' : 'text-blue-600 border-blue-200 hover:bg-blue-50'}`}>
-              <span>{uploading === 'resume' ? '⏳ 解析中...' : '+ 上传简历文件'}</span>
-              <input ref={resumeFileRef} type="file" accept=".pdf,.docx,.txt,.md" multiple className="hidden" disabled={!!uploading}
+            <p className="text-xs text-gray-400 mb-2">上传现有简历，AI 会参考格式和内容进行优化，不会强制改变结构</p>
+
+            <label className={`flex flex-col items-center justify-center gap-2 w-full rounded-xl border-2 border-dashed py-4 cursor-pointer transition-all ${uploading === 'resume' ? 'border-gray-200 bg-gray-50' : 'border-purple-200 bg-purple-50 hover:bg-purple-100'}`}>
+              {uploading === 'resume' ? (
+                <span className="text-sm text-gray-400">⏳ 解析中...</span>
+              ) : (
+                <>
+                  <span className="text-2xl">📋</span>
+                  <span className="text-sm font-medium text-purple-600">点击上传已有简历</span>
+                  <span className="text-xs text-gray-400">支持 PDF · Word (.docx) · TXT · MD</span>
+                </>
+              )}
+              <input ref={resumeFileRef} type="file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" multiple className="hidden" disabled={!!uploading}
                 onChange={e => handleFileUpload(e, setResumeDocs, resumeFileRef, 'resume')} />
             </label>
+
             {resumeDocs.length > 0 && (
               <div className="mt-2 space-y-1">
                 {resumeDocs.map((doc, i) => (
                   <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
                     <div className="flex items-center gap-2">
-                      <span>{doc.name.endsWith('.pdf') ? '📕' : '📘'}</span>
-                      <span className="text-sm text-gray-700">{doc.name}</span>
-                      <span className="text-xs text-gray-400">{doc.text.length} 字符</span>
+                      <span>{doc.name.endsWith('.pdf') ? '📕' : doc.name.endsWith('.docx') ? '📘' : '📄'}</span>
+                      <span className="text-sm text-gray-700 truncate max-w-[180px]">{doc.name}</span>
+                      <span className="text-xs text-gray-400">{doc.text.length} 字</span>
                     </div>
-                    <button onClick={() => setResumeDocs(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 text-lg">×</button>
+                    <button onClick={() => setResumeDocs(prev => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 text-lg ml-2">×</button>
                   </div>
                 ))}
               </div>
